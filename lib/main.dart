@@ -1,122 +1,262 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'task_model.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const TaskManagerApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class TaskManagerApp extends StatefulWidget {
+  const TaskManagerApp({super.key});
 
-  // This widget is the root of your application.
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
+  State<TaskManagerApp> createState() => _TaskManagerAppState();
+}
+
+class _TaskManagerAppState extends State<TaskManagerApp> {
+  ThemeMode _themeMode = ThemeMode.light;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTheme();
   }
-}
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
+  // Load theme preference from shared_preferences
+  void _loadTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isDarkMode = prefs.getBool('isDarkMode') ?? false;
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _themeMode = isDarkMode ? ThemeMode.dark : ThemeMode.light;
+    });
+  }
+
+  // Toggle and save theme preference
+  void _toggleTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _themeMode =
+          _themeMode == ThemeMode.light ? ThemeMode.dark : ThemeMode.light;
+      prefs.setBool('isDarkMode', _themeMode == ThemeMode.dark);
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    return MaterialApp(
+      title: 'Task Manager',
+      theme: ThemeData.light(useMaterial3: true),
+      darkTheme: ThemeData.dark(useMaterial3: true),
+      themeMode: _themeMode,
+      home: TaskListScreen(onToggleTheme: _toggleTheme),
+      debugShowCheckedModeBanner: false,
+    );
+  }
+}
+
+
+// Main screen widget
+class TaskListScreen extends StatefulWidget {
+  final VoidCallback onToggleTheme;
+  const TaskListScreen({super.key, required this.onToggleTheme});
+
+  @override
+  State<TaskListScreen> createState() => _TaskListScreenState();
+}
+
+class _TaskListScreenState extends State<TaskListScreen> {
+  final TextEditingController _taskController = TextEditingController();
+  List<Task> _tasks = []; // Instance variable to hold the list of tasks
+  TaskPriority _selectedPriority = TaskPriority.medium;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTasks();
+  }
+
+  // Data Persistence Methods 
+
+  Future<void> _loadTasks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? tasksString = prefs.getString('tasks');
+    if (tasksString != null) {
+      final List<dynamic> taskJson = jsonDecode(tasksString);
+      setState(() {
+        _tasks = taskJson.map((json) => Task.fromJson(json)).toList();
+        _sortTasks();
+      });
+    }
+  }
+
+  Future<void> _saveTasks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String tasksString =
+        jsonEncode(_tasks.map((task) => task.toJson()).toList());
+    await prefs.setString('tasks', tasksString);
+  }
+
+  // Task Management Methods
+  // All methods use setState to update the UI accordingly
+
+  void _addTask() {
+    final String taskName = _taskController.text.trim();
+    if (taskName.isNotEmpty) {
+      setState(() {
+        _tasks.add(Task(
+          id: DateTime.now().toString(),
+          name: taskName,
+          priority: _selectedPriority,
+        ));
+        _taskController.clear();
+        _sortTasks(); // Sort after adding a new task
+        _saveTasks();
+      });
+    }
+  }
+
+  void _toggleTaskCompletion(String id) {
+    setState(() {
+      final task = _tasks.firstWhere((task) => task.id == id);
+      task.isCompleted = !task.isCompleted;
+      _saveTasks();
+    });
+  }
+
+  void _deleteTask(String id) {
+    setState(() {
+      _tasks.removeWhere((task) => task.id == id);
+      _saveTasks();
+    });
+  }
+
+  void _changeTaskPriority(String id, TaskPriority newPriority) {
+    setState(() {
+      final task = _tasks.firstWhere((task) => task.id == id);
+      task.priority = newPriority;
+      _sortTasks(); // Re-sort the list when a priority changes
+      _saveTasks();
+    });
+  }
+
+  void _sortTasks() {
+    _tasks.sort((a, b) => b.priority.index.compareTo(a.priority.index));
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: const Text('Task Manager'),
+        actions: [
+          IconButton(
+            icon: Icon(Theme.of(context).brightness == Brightness.dark
+                ? Icons.light_mode
+                : Icons.dark_mode),
+            onPressed: widget.onToggleTheme,
+          ),
+        ],
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+          children: [
+            _buildTaskInputSection(), // UI for adding tasks
+            const SizedBox(height: 20),
+            Expanded(
+              child: _buildTaskList(), // UI to display the list of tasks
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+    );
+  }
+
+  // Widget for the text input field, priority selector, and Add button
+  Widget _buildTaskInputSection() {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField( // Text input field
+            controller: _taskController,
+            decoration: const InputDecoration(
+              labelText: 'Enter a new task',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Dropdown for selecting priority
+        DropdownButton<TaskPriority>(
+          value: _selectedPriority,
+          onChanged: (TaskPriority? newValue) {
+            if (newValue != null) {
+              setState(() {
+                _selectedPriority = newValue;
+              });
+            }
+          },
+          items: TaskPriority.values.map((priority) {
+            return DropdownMenuItem<TaskPriority>(
+              value: priority,
+              child: Text(priority.name[0].toUpperCase()),
+            );
+          }).toList(),
+        ),
+        const SizedBox(width: 8),
+        ElevatedButton( // Add button
+          onPressed: _addTask, // Implements add functionality
+          child: const Text('Add'),
+        ),
+      ],
+    );
+  }
+
+  // Widget for displaying the list of tasks
+  Widget _buildTaskList() {
+    return ListView.builder(
+      itemCount: _tasks.length,
+      itemBuilder: (context, index) {
+        final task = _tasks[index];
+        return Card(
+          margin: const EdgeInsets.symmetric(vertical: 4.0),
+          child: ListTile(
+            leading: Checkbox( // Checkbox to mark task as complete
+              value: task.isCompleted,
+              onChanged: (_) => _toggleTaskCompletion(task.id), // Implements completion functionality
+            ),
+            title: Text(
+              task.name,
+              style: TextStyle(
+                decoration: task.isCompleted
+                    ? TextDecoration.lineThrough
+                    : TextDecoration.none,
+              ),
+            ),
+            // Displays task priority next to the task
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Allows priority changes after creation
+                DropdownButton<TaskPriority>(
+                    value: task.priority,
+                    onChanged: (newVal) => _changeTaskPriority(task.id, newVal!),
+                    items: TaskPriority.values
+                        .map((p) => DropdownMenuItem(
+                              value: p,
+                              child: Text(p.name[0].toUpperCase()),
+                            ))
+                        .toList()),
+                IconButton( // Delete button
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => _deleteTask(task.id), // Implements delete functionality
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
