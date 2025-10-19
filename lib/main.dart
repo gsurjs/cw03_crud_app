@@ -200,7 +200,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
           items: TaskPriority.values.map((priority) {
             return DropdownMenuItem<TaskPriority>(
               value: priority,
-              child: Text(priority.name[0].toUpperCase()),
+              child: Text(priority.name[0].toUpperCase() + priority.name.substring(1)),
             );
           }).toList(),
         ),
@@ -245,7 +245,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
                     items: TaskPriority.values
                         .map((p) => DropdownMenuItem(
                               value: p,
-                              child: Text(p.name[0].toUpperCase()),
+                              child: Text(p.name[0].toUpperCase() + p.name.substring(1)),
                             ))
                         .toList()),
                 IconButton( // Delete button
